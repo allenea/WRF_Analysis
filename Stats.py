@@ -98,7 +98,7 @@ init_stats.set_plot_out_dir(os.path.join(os.getcwd(), "Plots", "WRF_Analysis"))
 # Where is your observation data located
 obs_data_dir = os.path.abspath('../../SeaBreeze_Data/All_Avg/')
 # Do you have different types of data - File Naming Scheme
-dtype_usage = '10m'         # original ||| highly recommended to always used 10m adjusted wind speed data.
+dtype_usage = '10m'         # original ||| highly recommended to always use 10m adjusted wind speed data.
 observation_interval_min = 30               ### UNUSED
 
 init_obs = ObsData(obs_data_dir=obs_data_dir,\
