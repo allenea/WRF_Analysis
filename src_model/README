@@ -1,0 +1,318 @@
+This is the primary source code for the model detection algorithm.
+
+The model detection algorithm was developed by Eric Allen in 2020.
+
+This work focused on identifying sea breeze fronts in the WRF model to support
+research by the Cloud Wind and Climate research group advised by Dr. Dana Veron
+at the University of Delaware.
+
+The metric used to identify the front is frontal strength. Frontal strength is a
+calculation of the change in potential temperature (at a desired vertical level) divided
+by the change in distance. The larger the frontal strength values, the stronger the front.
+
+
+This program comes equiped with three classes. The DetectionInfo and AnalysisGrid classes
+contain all the information required to run the detection algorithm. ModelData holds the
+information about the current run being analyzed. DetectionInfo will tell ModelData
+what runs are going to be used, where they can be found, and which variable will be analyzed.
+AnalysisGrid tells the detection algorithm how this data will be evaluated.
+
+The attributes of each class are printed out at the start of driver since they do not change.
+ModelData does change so we will not routinely track this data. To debug, you can
+uncomment wrf_data.print_info() in the driver's second loop.
+
+
+About the Classes:
+
+DetectionInfo: Contains all information controlling the algorith. This information is set by
+the user in the namelist_model_detection.py file. It knows what cases are going to be analyzed,
+where to find these model outputs, what domain will be used, what variable will
+be analyzed, what model level will be used, if the results be saved or not, where the
+namelist.wps file is located.
+
+For each "data drive" that contains information the driver will need to be executed once.
+If you have runs stored on different drives you can change the model data path to the new
+location, next reset/clear the cases or versions and provide a new set of cases or version.
+Once all the information has been provided call driver again. I have an example of this at
+the bottom of this file. I recommend that you use a common/repeatable naming scheme
+for all your directories so that data can easily be retrieved.
+
+Class:
+    - DetectionInfo
+Arguments:
+    - cases_times=list()
+    - case_versions=list()
+    - variable="Potential Temperature"
+    - domain_number=1
+    - save_results=True
+Attributes:
+    - data_directory
+    - wpsfile
+    - casestudy_times
+    - independent_variables                 (versions)
+    - domain                                (two char string "01", "02", "03",...)
+    - variable                              (should match a variable in get_wrf_data)
+    - save_results
+Methods:
+    - set_domain(int)
+    - initialize_cases(list)
+    - initialize_versions(list)
+    - set_save(bool)
+    - set_variable(string)
+    - set_data_dir(string)
+    - set_namelistwps(string)
+    - add_cases(list)
+    - add_case_versions(list)
+    - clear_cases()
+    - clear_case_versions()
+    - print_info()
+
+
+AnalysisGrid: Contains the information required to construct a domain that mimics
+the namelist.wps or WRF domain. You need to be familiar with how this works.
+
+namelist_plot can help you visualize this beforehand.
+I have examples with namelist_plot in my github (github.com/allenea/namelist_plot)
+
+This grid should be a subset of the domain being used in order to eliminate
+potential edge-effect problems. I have not tested using the full domain.
+There should be the start/end points in the south_north and west_east directions
+such that the south and west are lower indicies (start) and north and east are larger
+indicies (end). The horizontal resolution should be in kilometers. The model level is
+the number of levels above the ground (lowest level = 1). The cell_size is the number
+of grid cells on each side are used to make up the nugget. The nugget is calculated as
+(2*cell_size + 1) to count the number of grid cells then multiplied by the resolution.
+A nugget is  a square ((2*cell_size + 1) * dx) by ((2*cell_size + 1) * dx) with the area
+of ((2*cell_size + 1) * dx)^2. The gradient_distance (10) is the distance used to
+calculate the change in theta. Change between two points, i and i + gradient distance.
+MAKE SURE that it is the first west-most cell in the second nugget to the east of
+the current nugget. Finally, threshold is the minimum value. Anything below that value
+is too weak to be a front. min_pixel_area is used to measure individual clusters
+of pixels (pixels = threshold value). If the area of a cluster is less than ??? pixels
+(500 pixels in this case), then it is just noise and not a front so it is removed/filtered out.
+
+
+Class:
+    - AnalysisGrid
+Arguments:
+    - vertlvl
+    - resolution
+    - cellsize
+    - gradientdx
+    - westpt
+    - eastpt
+    - southpt
+    - northpt
+    - threshold_value
+    - min_pixel_area
+Attributes:
+    - level
+    - dx_1
+    - cell_size
+    - nugget
+    - gradient_distance
+    - west_start
+    - east_end
+    - south_start
+    - north_end
+    - threshold
+    - filter_area
+Methods:
+    - set_level(int)
+    - set_horizontal_resolution(int)
+    - set_cell_size(int)
+    - set_gradient_distance(int)
+    - set_westpt(int)
+    - set_eastpt(int)
+    - set_southpt(int)
+    - set_northpt(int)
+    - set_threshold(float)
+    - set_filterarea(int)
+    - set_nuggetsize()
+    - print_info()
+
+
+ModelData: An instance of this class is created for each model output being analyzed.
+ModelData is created using information from DetectionInfo. As the driver loops through
+the cases and the versions (independent variables) from DetectionInfo, as well as other attributes
+from DetectionInfo like variable, domain, and data_directory are used to create the instance.
+When creating an instance of ModelData the WRF netcdf file is read in (using fmt_run_path
+to include the data_directory, case, version, and domain number as a string to locate the file),
+then all the data associated with the var (or variable) is extracted from the file and assigned
+to the wrf_var attribute. Once all the data (wrf_var, wrf_dt, lats, lons, etc.) have been identified
+the attribute that holds the WRF netcdf file's data is set to None to clear space in memory.
+The time steps for the model are retrieved and put into a list of datetime objects.
+This list of dt objects is looped through for analysis. The attribute time_idx is used to index
+wrf_var (and AnalysisGrid.level indexes through the vertical dimension).
+Each step through the loop set_timestep is set with the index for the current date-time.
+
+Things like datapaths (for output data) and mappaths (output figures) are also set using
+case_time and version. This way the algorithm can save data in an organized fashion.
+The namelist.wps file location is also transfered and stored. Finally, instructions are
+provided to tell the algorithm if the user wants the useful data or figures produced by the
+algorithm saved.
+
+*** fmt_run_path and get_wrf_data may need to be updated if you are using different variables or if
+you use a different naming scheme in your file system. ***
+
+Class:
+    - ModelData
+Arguments:
+    - case
+    - version
+    - var                                 (variable)
+    - domain
+    - path
+Attributes:
+    - case_time                           (formatted string - time naming scheme)
+    - version                             (string - version naming scheme)
+    - filelocname                         (parent directory of wrfout file)
+    - ncfile = Dataset(wrfout_d0#)        (None: cleared from memory after lats, lons, wrf_dt and wrf_var have been retrieved)
+    - wrf_var                             (variable data extracted from netcdf file)
+    - wrf_dt                              (list of datetime objects matching wrf time steps)
+    - time_idx                            (int index for time step)
+    - save                                (bool save results: True)
+    - wpsfile
+    - datapath
+    - mappath
+    - lat_dim                             (cls.ncfile.dimensions.get("south_north").size)
+    - lon_dim                             (cls.ncfile.dimensions.get("west_east").size)
+    - vert_dim                            (cls.ncfile.dimensions.get('bottom_top').size)
+      --------
+    - lats          getvar(self.ncfile, "XLAT", timeidx=0, method='cat',\
+                           squeeze=True, cache=None, meta=False)
+    - lons          getvar(self.ncfile, "XLONG", timeidx=0, method='cat',\
+                           squeeze=True, cache=None, meta=False)
+Methods:
+    set_open_file()
+    fmt_run_path(str case, str independent_var, str domain, str path_pwd)
+    get_wrf_data(str var)
+    set_version(str)
+    set_timestep(int)
+    set_namelistwps(str)
+    set_save(bool):
+    set_datapath(str)
+    set_mappath(str)
+    set_lat_dimension()
+    set_lon_dimension()
+    set_vert_dimension()
+    get_wrf_datetime_obj()
+    clear_ncfile()
+    print_info()
+
+
+
+The Current Setup:
+
+This program was evaluated using close to 60 different 1-km WRF outputs.
+After a separate program was used to calculate the max, min, and average AGL heights
+for each model level, the second vertical level was chosen for this analysis. The
+data was "upscaled" to reduce noise. Theta was calculated for a "nugget" the size of
+x cell_size in each direction (2*cell_size*dx + 1 can be used to calculate the size
+of a nugget in km). In this configuration, a 5km x 5km nugget was used. Frontal strength
+is then calculated by subtracting the theta_bar values from the nugget and the nugget
+in position of gradient distance from the current direction. In this case, it is comparing
+the nugget to the second nugget to its east (i1=1, i2=3; i1=4, i2=6
+(assuming each nugget is 1 index)). The difference is divided by the gradient_distance
+multiplied by the grid resolution. As these are being calculated and saved, a second array
+stores only values that are above the minimum threshold value set by the user.
+In this case that value was 0.1. If the frontal strenght is below 0.1, then it is set
+to np.nan (missing value). Thresholded data is filtered to remove small clusters
+of pixels. Ndimage from scipy is used to evaluate each individual cluster of pixels. An
+image processing technique is used to calculate the area of the pixels in a cluster. If the
+area is lower than the minimum pixel area, then that cluster is removed. This leaves larger features
+that share front like characteristics, while removing small cluster that don't share characteristics.
+After this step, a masked array is created using the minimum threshold (0.1) value.
+This masked array is analyzed to determine if there is a front and if there is what
+is the location of the front. Each row of grid cells is analyzed to find the strongest
+frontal values, that are above the minimum threshold, and has a neighbor to either its
+left or right with a value greater than the minimum threshold. The reason the later half
+of this criteria exists is to make sure that it actually is a front. Any front should have more than
+a one pixel-wide signature. If not the front either isn't in that row or it hasnt' been identified yet.
+Once the front detection has taken place, the points are analyzed to see if they
+meet the criteria for front identification. Each potential front is analyzed for the number/
+percentage of frontal points found in that scan and for the longest sequence of continuous points.
+To be classified as a front, it must meet one of two criteria. It must either be 50% of the
+total transects with a longest sequence of 20 continuous points or 30% of the total transects
+with a longest sequence of 45 continuous points.
+
+The upscaled theta values (5x5) and raw frontal strength calculations are saved to csv files
+so that they can be analyzed separately in the future. There is code to analyze these to critique
+the algorithm for improved success in your study. I used this code to tune the algorithm for sea breeze
+detection. Finally, a figure is made that has the frontal strength values
+(filtered - leaving only the clusters that could be fronts) and points where a front was found.
+If there was no front found, these points are not plotted. This is done for every
+time step in the model. For each time step, a boolean to say whether or not the front
+was found and a list of latitude and longitude values are returned and stored in
+a dataframe associated with its timestep. After the run is done, these data are save to a csv
+file that contains a column (the first) with latitude, then columns for longitude associated with
+each of the time steps. If there was not a front found then it's left empty/blank. This process
+is repeated for each model run.
+
+My namelist_plot program is used to ensure the figure looks okay and consistent even when there is no data.
+I work it into many of my programs because it reconstructs the exact WRF domain using the same namelist.wps
+file that WRF uses.
+
+
+Key Takeaways:
+
+Configure the namelist file (Detection Info - Where the runs can be found;
+                             Analysis Grid -- Mock grid to be analyzed)
+
+Start with threshold value low and the min_pixel_area small and
+     work up until you remove noise without removing important features.
+     This will likely need to be changed if you are not looking at sea breezes.
+     You can use the code I provided to analyze the theta and frontal strenght data
+     to figure out what works best for your study.
+
+Update fmt_run_path in ModelData to match your file system
+
+If using a different variable consider updating get_wrf_data in ModelData.
+
+You can analyze the frontal strength (original) and the upscaled theta values to tune the sensitivity.
+
+If you have data in more than one location.... After the initial set up and driver(grid, detect) is called
+    in the namelist file.
+
+    #Set the new set of case versions
+    new_path = '/new location/'
+    detect.set_data_dir(new_path)
+
+    #Remove all cases
+    detect.clear_cases()
+
+    #Set the new case versions
+    new_casestudy_times = ['BUOY', "BUOY_SST"]
+    detect.add_cases(new_casestudy_times)
+
+    #Remove all case versions
+    detect.clear_case_versions()
+
+    #Set the new case versions
+    independent_var = ['BUOY', "BUOY_SST"]
+    detect.add_case_versions(independent_var)
+
+    #Pass it to the driver
+    driver(grid, detect)
+
+Repeat as needed.
+
+Modify the plots to look the way you want.
+
+
+
+Front Strength Index Claculation Example: theta[10, 10] - theta[20,10]/(gradient distance * dx)
+
+
+Suggested Alterations:
+
+To change criteria for what is or isn't a front:
+    modify ~Line 84 of find_front.py.
+
+To change width criteria for front (currently needs once > threshold pixel on it's right or left):
+    modify spacer = int(grid_in.gradient_distance*0.5) in detect_front.py (~Line 26)
+
+To search west to east instead of east-to-west in detect front (~Line 33):
+    switch range(eastern_point, grid_in.west_start+spacer, -1) to range(west_start+spacer, eastern_point, 1)
+
+-Eric
